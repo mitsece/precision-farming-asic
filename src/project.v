@@ -45,11 +45,12 @@ module tt_um_precision_farming (
     // ============================================
     
     // 2 sensor channels with 4-sample history
-    reg [7:0] sensor_history [0:1][0:3]; // 2 sensors, 4 samples each
-    reg [1:0] history_ptr [0:1];         // Write pointer
-    reg [9:0] sensor_sum [0:1];          // Running sum
-    reg [7:0] sensor_avg [0:1];          // Current average
-    reg [7:0] sensor_threshold [0:1];    // Thresholds
+    reg [7:0] sensor_history_0_0, sensor_history_0_1, sensor_history_0_2, sensor_history_0_3;
+    reg [7:0] sensor_history_1_0, sensor_history_1_1, sensor_history_1_2, sensor_history_1_3;
+    reg [1:0] history_ptr_0, history_ptr_1;
+    reg [9:0] sensor_sum_0, sensor_sum_1;
+    reg [7:0] sensor_avg_0, sensor_avg_1;
+    reg [7:0] sensor_threshold_0, sensor_threshold_1;
     
     // State counter
     reg [2:0] sample_state;
@@ -83,20 +84,49 @@ module tt_um_precision_farming (
     reg valve_open;
     reg [11:0] pump_timer;
     
-    integer i, j;
+    // Helper wires for array access
+    reg [7:0] current_history_value;
+    
+    always @(*) begin
+        // Read from history based on sensor_sel and history_ptr
+        if (sensor_sel == 0) begin
+            case (history_ptr_0)
+                2'd0: current_history_value = sensor_history_0_0;
+                2'd1: current_history_value = sensor_history_0_1;
+                2'd2: current_history_value = sensor_history_0_2;
+                2'd3: current_history_value = sensor_history_0_3;
+            endcase
+        end else begin
+            case (history_ptr_1)
+                2'd0: current_history_value = sensor_history_1_0;
+                2'd1: current_history_value = sensor_history_1_1;
+                2'd2: current_history_value = sensor_history_1_2;
+                2'd3: current_history_value = sensor_history_1_3;
+            endcase
+        end
+    end
     
     always @(posedge clk) begin
         if (!rst_n) begin
-            // Reset sensor data
-            for (i = 0; i < 2; i = i + 1) begin
-                for (j = 0; j < 4; j = j + 1) begin
-                    sensor_history[i][j] <= 0;
-                end
-                history_ptr[i] <= 0;
-                sensor_sum[i] <= 0;
-                sensor_avg[i] <= 0;
-                sensor_threshold[i] <= 128;
-            end
+            // Reset sensor 0 history
+            sensor_history_0_0 <= 0;
+            sensor_history_0_1 <= 0;
+            sensor_history_0_2 <= 0;
+            sensor_history_0_3 <= 0;
+            history_ptr_0 <= 0;
+            sensor_sum_0 <= 0;
+            sensor_avg_0 <= 0;
+            sensor_threshold_0 <= 128;
+            
+            // Reset sensor 1 history
+            sensor_history_1_0 <= 0;
+            sensor_history_1_1 <= 0;
+            sensor_history_1_2 <= 0;
+            sensor_history_1_3 <= 0;
+            history_ptr_1 <= 0;
+            sensor_sum_1 <= 0;
+            sensor_avg_1 <= 0;
+            sensor_threshold_1 <= 128;
             
             // Reset ML
             green_pixel_count <= 0;
@@ -125,33 +155,53 @@ module tt_um_precision_farming (
                 // SENSOR MODE
                 // ============================================
                 
-                // Store reading
-                sensor_history[sensor_sel][history_ptr[sensor_sel]] <= ui_in;
-                history_ptr[sensor_sel] <= history_ptr[sensor_sel] + 1;
-                
-                // Running sum (4 samples)
-                sensor_sum[sensor_sel] <= sensor_sum[sensor_sel] - 
-                    {2'b0, sensor_history[sensor_sel][history_ptr[sensor_sel]]} + 
-                    {2'b0, ui_in};
-                
-                // Average: divide by 4
-                sensor_avg[sensor_sel] <= {2'b0, sensor_sum[sensor_sel][9:2]};
+                // Store reading in history
+                if (sensor_sel == 0) begin
+                    case (history_ptr_0)
+                        2'd0: sensor_history_0_0 <= ui_in;
+                        2'd1: sensor_history_0_1 <= ui_in;
+                        2'd2: sensor_history_0_2 <= ui_in;
+                        2'd3: sensor_history_0_3 <= ui_in;
+                    endcase
+                    history_ptr_0 <= history_ptr_0 + 1;
+                    
+                    // Running sum (4 samples)
+                    sensor_sum_0 <= sensor_sum_0 - {2'b0, current_history_value} + {2'b0, ui_in};
+                    
+                    // Average: divide by 4
+                    sensor_avg_0 <= {2'b0, sensor_sum_0[9:2]};
+                    
+                end else begin
+                    case (history_ptr_1)
+                        2'd0: sensor_history_1_0 <= ui_in;
+                        2'd1: sensor_history_1_1 <= ui_in;
+                        2'd2: sensor_history_1_2 <= ui_in;
+                        2'd3: sensor_history_1_3 <= ui_in;
+                    endcase
+                    history_ptr_1 <= history_ptr_1 + 1;
+                    
+                    // Running sum (4 samples)
+                    sensor_sum_1 <= sensor_sum_1 - {2'b0, current_history_value} + {2'b0, ui_in};
+                    
+                    // Average: divide by 4
+                    sensor_avg_1 <= {2'b0, sensor_sum_1[9:2]};
+                end
                 
                 // Decision logic
                 sample_state <= sample_state + 1;
                 if (sample_state == 7) begin
                     // Check sensors
                     alert_level <= 0;
-                    if (sensor_avg[0] > sensor_threshold[0]) alert_level <= alert_level + 1;
-                    if (sensor_avg[1] > sensor_threshold[1]) alert_level <= alert_level + 1;
+                    if (sensor_avg_0 > sensor_threshold_0) alert_level <= alert_level + 1;
+                    if (sensor_avg_1 > sensor_threshold_1) alert_level <= alert_level + 1;
                     
                     // Auto control
                     if (auto_mode) begin
-                        if (sensor_avg[0] < 80) begin
+                        if (sensor_avg_0 < 80) begin
                             pump_on <= 1;
                             valve_open <= 1;
                             pump_timer <= 12'd1000;
-                        end else if (sensor_avg[0] > 180) begin
+                        end else if (sensor_avg_0 > 180) begin
                             pump_on <= 0;
                             valve_open <= 0;
                         end
