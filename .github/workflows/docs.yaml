@@ -16,6 +16,13 @@ jobs:
         with:
           submodules: recursive
       
+      - name: Checkout TinyTapeout tools
+        uses: actions/checkout@v4
+        with:
+          repository: TinyTapeout/tt-support-tools
+          path: tt
+          ref: tt07
+      
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
