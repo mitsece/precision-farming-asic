@@ -90,12 +90,32 @@ module tt_um_precision_farming (
     
     reg growth_ready;               // Harvest readiness flag
     reg [2:0] growth_stage;         // 0-7 growth stages
+    reg [7:0] maturity_percent;     // Maturity percentage (0-100)
+    
+    // ============================================
+    // FAULT DETECTION REGISTERS
+    // ============================================
+    reg [7:0] last_soil_reading;    // Previous reading for stuck detection
+    reg [7:0] last_temp_reading;
+    reg [7:0] last_humid_reading;
+    reg [7:0] last_light_reading;
+    
+    reg fault_soil_stuck;           // Sensor stuck (same value)
+    reg fault_temp_stuck;
+    reg fault_humid_stuck;
+    reg fault_light_stuck;
+    
+    reg fault_soil_extreme;         // Extreme/impossible values
+    reg fault_temp_extreme;
+    reg fault_humid_extreme;
+    reg fault_light_extreme;
     
     // ============================================
     // OUTPUT REGISTERS
     // ============================================
     reg buzzer_active;              // Master alert/buzzer
     reg [3:0] alert_code;           // Which sensors triggered
+    reg [3:0] fault_code;           // Which sensors faulted
     reg [7:0] status_output;
     reg [7:0] debug_output;
     
@@ -207,9 +227,55 @@ module tt_um_precision_farming (
                 // Increment history pointer
                 history_index <= history_index + 1;
                 
+                // ============================================
+                // FAULT DETECTION
+                // ============================================
+                
+                // Detect stuck sensors (same value for multiple readings)
+                if (ui_in == last_soil_reading && sensor_sel == 2'b00) begin
+                    fault_soil_stuck <= 1;
+                end else if (sensor_sel == 2'b00) begin
+                    fault_soil_stuck <= 0;
+                    last_soil_reading <= ui_in;
+                end
+                
+                if (ui_in == last_temp_reading && sensor_sel == 2'b01) begin
+                    fault_temp_stuck <= 1;
+                end else if (sensor_sel == 2'b01) begin
+                    fault_temp_stuck <= 0;
+                    last_temp_reading <= ui_in;
+                end
+                
+                if (ui_in == last_humid_reading && sensor_sel == 2'b10) begin
+                    fault_humid_stuck <= 1;
+                end else if (sensor_sel == 2'b10) begin
+                    fault_humid_stuck <= 0;
+                    last_humid_reading <= ui_in;
+                end
+                
+                if (ui_in == last_light_reading && sensor_sel == 2'b11) begin
+                    fault_light_stuck <= 1;
+                end else if (sensor_sel == 2'b11) begin
+                    fault_light_stuck <= 0;
+                    last_light_reading <= ui_in;
+                end
+                
+                // Detect extreme/impossible values
+                fault_soil_extreme <= (sensor_soil == 8'd0 || sensor_soil == 8'd255);
+                fault_temp_extreme <= (sensor_temp == 8'd0 || sensor_temp == 8'd255);
+                fault_humid_extreme <= (sensor_humid == 8'd0 || sensor_humid == 8'd255);
+                fault_light_extreme <= (sensor_light == 8'd0 || sensor_light == 8'd255);
+                
+                // Aggregate faults
+                fault_code <= {fault_light_stuck | fault_light_extreme,
+                              fault_humid_stuck | fault_humid_extreme,
+                              fault_temp_stuck | fault_temp_extreme,
+                              fault_soil_stuck | fault_soil_extreme};
+                
                 // Aggregate alerts
                 alert_code <= {alert_light, alert_humid, alert_temp, alert_soil};
-                buzzer_active <= alert_soil | alert_temp | alert_humid | alert_light;
+                buzzer_active <= alert_soil | alert_temp | alert_humid | alert_light | 
+                                (|fault_code);  // Buzzer also for faults!
                 
                 // Output current sensor reading
                 case (sensor_sel)
@@ -236,37 +302,67 @@ module tt_um_precision_farming (
                     // Valid pixel data
                     total_pixel_count <= total_pixel_count + 1;
                     
-                    // Color classification (RGB332 format: RRR GGG BB)
-                    // Green: High G, Very Low R (immature microgreen)
-                    // Yellow/Brown: High R AND High G (mature/ready)
+                    // ============================================
+                    // COLOR CLASSIFICATION - Pea Microgreen Biology
+                    // ============================================
+                    // Immature (7-10 days): Light green cotyledons
+                    // Mature (10-20 days): Deep green true leaves
+                    // RGB332 format: RRR GGG BB
                     
-                    // Green detection: G[4:2] > 5, R[7:5] < 2 (stricter for green)
-                    if ((ui_in[4:2] > 3'd5) && (ui_in[7:5] < 3'd2)) begin
-                        green_pixel_count <= green_pixel_count + 1;
+                    // Light green detection (immature): Medium G, Low R
+                    // G[4:2] = 3-5 (medium green), R[7:5] < 2 (very low red)
+                    if ((ui_in[4:2] >= 3'd3) && (ui_in[4:2] <= 3'd5) && (ui_in[7:5] < 3'd2)) begin
+                        green_pixel_count <= green_pixel_count + 1;  // Light green = immature
                     end
                     
-                    // Yellow/mature detection: R[7:5] > 5, G[4:2] > 4 (both high)
-                    else if ((ui_in[7:5] > 3'd5) && (ui_in[4:2] > 3'd4)) begin
-                        yellow_pixel_count <= yellow_pixel_count + 1;
+                    // Deep green detection (mature): High G, Low R
+                    // G[4:2] > 5 (deep green), R[7:5] < 2 (very low red)
+                    else if ((ui_in[4:2] > 3'd5) && (ui_in[7:5] < 3'd2)) begin
+                        yellow_pixel_count <= yellow_pixel_count + 1;  // Reuse for "deep green" count
                     end
                     
                 end else if (total_pixel_count > 12'd100) begin
-                    // Frame complete - analyze results
+                    // ============================================
+                    // GROWTH STAGE ANALYSIS
+                    // ============================================
+                    // Based on deep green (mature) vs light green (immature) ratio
                     
-                    // Calculate growth stage (0-7)
-                    // Based on ratio of mature to total pixels
-                    if (yellow_pixel_count > (total_pixel_count >> 1)) begin
-                        growth_stage <= 3'd7; // Fully mature
-                        growth_ready <= 1;
-                    end else if (yellow_pixel_count > (total_pixel_count >> 2)) begin
-                        growth_stage <= 3'd5; // Nearly ready
-                        growth_ready <= 1;
-                    end else if (yellow_pixel_count > (total_pixel_count >> 3)) begin
-                        growth_stage <= 3'd3; // Mid-growth
-                        growth_ready <= 0;
+                    // Calculate maturity percentage: deep_green / (light + deep) * 100
+                    // Using yellow_pixel_count register for deep_green count
+                    reg [11:0] total_green;
+                    total_green = green_pixel_count + yellow_pixel_count;
+                    
+                    if (total_green > 12'd10) begin
+                        // Maturity = (deep_green * 100) / total_green
+                        // Simplified: maturity_percent = (yellow_pixel_count << 6) / total_green
+                        maturity_percent <= (yellow_pixel_count * 8'd100) / total_green[7:0];
                     end else begin
-                        growth_stage <= 3'd1; // Early growth
-                        growth_ready <= 0;
+                        maturity_percent <= 0;
+                    end
+                    
+                    // ============================================
+                    // GROWTH STAGE CLASSIFICATION
+                    // ============================================
+                    // Stage 0-1: Germination (0-20% mature)
+                    // Stage 2-3: Early growth (20-40% mature)
+                    // Stage 4-5: Mid growth (40-60% mature)
+                    // Stage 6-7: Mature/Ready (60-100% mature)
+                    
+                    if (maturity_percent >= 8'd80) begin
+                        growth_stage <= 3'd7;  // Fully mature (>80%)
+                        growth_ready <= 1;     // HARVEST NOW!
+                    end else if (maturity_percent >= 8'd60) begin
+                        growth_stage <= 3'd6;  // Nearly ready (60-80%)
+                        growth_ready <= 1;     // Can harvest
+                    end else if (maturity_percent >= 8'd40) begin
+                        growth_stage <= 3'd4;  // Mid-growth (40-60%)
+                        growth_ready <= 0;     // Wait a bit more
+                    end else if (maturity_percent >= 8'd20) begin
+                        growth_stage <= 3'd2;  // Early growth (20-40%)
+                        growth_ready <= 0;     // Too early
+                    end else begin
+                        growth_stage <= 3'd1;  // Germination (0-20%)
+                        growth_ready <= 0;     // Way too early
                     end
                     
                     // Buzzer for harvest ready
@@ -275,7 +371,7 @@ module tt_um_precision_farming (
                 
                 // Output growth status
                 status_output <= {growth_ready, growth_stage, alert_code};
-                debug_output <= yellow_pixel_count[7:0];
+                debug_output <= maturity_percent;  // Show maturity % for debugging
             end
         end
     end
