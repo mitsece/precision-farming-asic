@@ -1,21 +1,21 @@
 name: docs
-
 on:
   push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
-  docs:
+  build-docs:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
-
-      - name: Build docs
-        uses: TinyTapeout/tt-gds-action/docs@tt07
-
+      
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
@@ -42,8 +42,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: datasheet
-
-      
-          path: |
-            datasheet.pdf
+          path: datasheet.pdf
           if-no-files-found: error
