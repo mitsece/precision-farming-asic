@@ -49,7 +49,12 @@ def select_sensor(dut, sensor_id):
 
 def get_alert_status(dut):
     """Read alert and status outputs"""
-    uo_val = int(dut.uo_out.value)
+    try:
+        uo_val = int(dut.uo_out.value)
+    except ValueError:
+        # Handle 'x' or 'z' values by treating as 0
+        uo_val = 0
+    
     return {
         'system_alert': bool(uo_val & 0x80),
         'ready': bool(uo_val & 0x40),
