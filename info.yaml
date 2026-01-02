@@ -1,49 +1,92 @@
 # Tiny Tapeout project information
 project:
-  title:        "final_precision-project"      # Project title
-  author:       "my name"      # Your name
-  discord:      ""      # Your discord username, for communication and automatically assigning you a Tapeout role (optional)
-  description:  "calculation"      # One line description of what your project does
-  language:     "Verilog" # other examples include SystemVerilog, Amaranth, VHDL, etc
-  clock_hz:     0       # Clock frequency in Hz (or 0 if not applicable)
-
-  # How many tiles your design occupies? A single tile is about 167x108 uM.
-  tiles: "1x1"          # Valid values: 1x1, 1x2, 2x2, 3x2, 4x2, 6x2 or 8x2
-
-  # Your top module name must start with "tt_um_". Make it unique by including your github username:
+  title:        "Precision Farming ASIC"
+  author:       "Your Name"
+  discord:      ""
+  description:  "Dual-mode ASIC for agricultural automation: sensor monitoring with adaptive thresholds and ML-based harvest detection"
+  language:     "Verilog"
+  clock_hz:     10000000  # 10 MHz clock
+  tiles: "1x1"
   top_module:  "tt_um_precision_farming"
-
-  # List your project's source files here.
-  # Source files must be in ./src and you must list each source file separately, one per line.
-  # Don't forget to also update `PROJECT_SOURCES` in test/Makefile.
   source_files:
     - "project.v"
+
+# Documentation
+docs:
+  tldr: "Agricultural ASIC with dual-mode sensor monitoring and ML crop analysis"
+  description: |
+    **Precision Farming ASIC** is a specialized hardware accelerator for smart agriculture applications.
+    
+    ## Features
+    
+    ### Mode 1: Sensor Monitoring
+    - Monitors 2 independent sensor channels (soil moisture, nutrients, etc.)
+    - 4-sample moving average per channel
+    - Adaptive threshold detection
+    - Auto irrigation control (pump and valve)
+    - 2-level alert system
+    
+    ### Mode 2: ML Harvest Detection
+    - Processes camera feed for crop analysis
+    - Color-based classification (green/red detection)
+    - Simple 2-neuron network
+    - Harvest readiness detection
+    - Pest/disease detection
+    
+    ## Operation
+    
+    Set `uio_in[7]` to switch modes:
+    - `0` = Sensor Monitoring Mode
+    - `1` = ML Harvest Detection Mode
+    
+    ### Sensor Mode
+    1. Select sensor channel with `uio_in[0]` (0 or 1)
+    2. Feed sensor data to `ui_in[7:0]`
+    3. Enable auto control with `uio_in[4]`
+    4. Monitor outputs on `uo_out[7:0]`
+    
+    ### ML Mode
+    1. Send VSYNC pulse on `uio_in[6]` to start frame
+    2. Assert HREF on `uio_in[5]` during valid pixels
+    3. Send pixel data on `ui_in[7:0]` (RRR GGG BB format)
+    4. Read harvest status on `uo_out[7]`
+    
+    ## Applications
+    - Smart irrigation systems
+    - Greenhouse automation
+    - Crop maturity detection
+    - Early disease detection
+
 # Pinout definition
 pinout:
-  ui[0]: "Sensor Data / Cam D0"
-  ui[1]: "Sensor Data / Cam D1"
-  ui[2]: "Sensor Data / Cam D2"
-  ui[3]: "Sensor Data / Cam D3"
-  ui[4]: "Sensor Data / Cam D4"
-  ui[5]: "Sensor Data / Cam D5"
-  ui[6]: "Sensor Data / Cam D6"
-  ui[7]: "Sensor Data / Cam D7"
-  uo[0]: "Debug"
-  uo[1]: "Fault Lvl 0"
-  uo[2]: "Fault Lvl 1"
-  uo[3]: "Fault Lvl 2"
-  uo[4]: "Harvest Ready"
-  uo[5]: "Mode Indicator"
-  uo[6]: "System Ready"
-  uo[7]: "Alert"
-  uio[0]: "Sensor Sel 0"
-  uio[1]: "Sensor Sel 1"
+  # Inputs
+  ui[0]: "Sensor Data D0 / Pixel D0"
+  ui[1]: "Sensor Data D1 / Pixel D1"
+  ui[2]: "Sensor Data D2 / Pixel D2"
+  ui[3]: "Sensor Data D3 / Pixel D3"
+  ui[4]: "Sensor Data D4 / Pixel D4"
+  ui[5]: "Sensor Data D5 / Pixel D5"
+  ui[6]: "Sensor Data D6 / Pixel D6"
+  ui[7]: "Sensor Data D7 / Pixel D7"
+  
+  # Outputs
+  uo[0]: "Valve Status / ML Output[0]"
+  uo[1]: "Pump Status / ML Output[1]"
+  uo[2]: "Alert Level 0 / ML Output[2]"
+  uo[3]: "Alert Level 1 / ML Output[3]"
+  uo[4]: "Status / ML Output[4]"
+  uo[5]: "Status / ML Output[5]"
+  uo[6]: "Pest Detected / Status"
+  uo[7]: "Alert / Harvest Ready"
+  
+  # Bidirectional IOs
+  uio[0]: "Sensor Select (0/1)"
+  uio[1]: "Reserved"
   uio[2]: "Reserved"
   uio[3]: "Reserved"
-  uio[4]: "Reserved"
-  uio[5]: "HREF"
-  uio[6]: "VSYNC"
-  uio[7]: "Mode Select"
-
+  uio[4]: "Auto Mode Enable"
+  uio[5]: "HREF (Line Valid)"
+  uio[6]: "VSYNC (Frame Sync)"
+  uio[7]: "Mode Select (0=Sensor, 1=ML)"
 
 yaml_version: 6
