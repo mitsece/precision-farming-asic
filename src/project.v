@@ -288,7 +288,8 @@ module tt_um_precision_farming (
     // Suppress unused signal warnings
     /* verilator lint_off UNUSEDSIGNAL */
     wire _unused = &{1'b0, uio_in[4:2], green_pixel_count[11:8], 
-                     yellow_pixel_count[11:8], total_pixel_count[11:8], 1'b0};
+                     yellow_pixel_count[11:8], total_pixel_count[11:8], 
+                     status_output[7], 1'b0};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
