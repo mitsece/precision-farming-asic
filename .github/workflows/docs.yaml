@@ -15,3 +15,35 @@ jobs:
 
       - name: Build docs
         uses: TinyTapeout/tt-gds-action/docs@tt07
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install Typst
+        uses: typst-community/setup-typst@v3
+        with:
+          typst-version: 'latest'
+      
+      - name: Verify Typst installation
+        run: typst --version
+      
+      - name: Install Pandoc
+        run: sudo apt-get update && sudo apt-get install -y pandoc
+      
+      - name: Install Python dependencies
+        run: pip install -r tt/requirements.txt
+      
+      - name: Build TinyTapeout datasheet
+        run: ./tt/tt_tool.py --create-pdf
+      
+      - name: Upload documentation artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: datasheet
+
+      
+          path: |
+            datasheet.pdf
+          if-no-files-found: error
