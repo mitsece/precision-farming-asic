@@ -9,6 +9,7 @@
  * - Harvest Readiness Detection
  */
 
+`timescale 1ns / 1ps
 `default_nettype none
 
 module tt_um_precision_farming (
@@ -235,17 +236,17 @@ module tt_um_precision_farming (
                     // Valid pixel data
                     total_pixel_count <= total_pixel_count + 1;
                     
-                    // Color classification (RGB332 or similar format)
-                    // Green: High G, Low R,B (immature microgreen)
-                    // Yellow/Brown: High R,G, Low B (mature/ready)
+                    // Color classification (RGB332 format: RRR GGG BB)
+                    // Green: High G, Very Low R (immature microgreen)
+                    // Yellow/Brown: High R AND High G (mature/ready)
                     
-                    // Green detection: G[4:2] > 5, R[7:5] < 3
-                    if ((ui_in[4:2] > 3'd5) && (ui_in[7:5] < 3'd3)) begin
+                    // Green detection: G[4:2] > 5, R[7:5] < 2 (stricter for green)
+                    if ((ui_in[4:2] > 3'd5) && (ui_in[7:5] < 3'd2)) begin
                         green_pixel_count <= green_pixel_count + 1;
                     end
                     
-                    // Yellow/mature detection: R[7:5] > 4, G[4:2] > 3
-                    else if ((ui_in[7:5] > 3'd4) && (ui_in[4:2] > 3'd3)) begin
+                    // Yellow/mature detection: R[7:5] > 5, G[4:2] > 4 (both high)
+                    else if ((ui_in[7:5] > 3'd5) && (ui_in[4:2] > 3'd4)) begin
                         yellow_pixel_count <= yellow_pixel_count + 1;
                     end
                     
