@@ -191,9 +191,13 @@ module tt_um_precision_farming (
                 sample_state <= sample_state + 1;
                 if (sample_state == 7) begin
                     // Check sensors
-                    alert_level <= 0;
-                    if (sensor_avg_0 > sensor_threshold_0) alert_level <= alert_level + 1;
-                    if (sensor_avg_1 > sensor_threshold_1) alert_level <= alert_level + 1;
+                    if (sensor_avg_0 > sensor_threshold_0 && sensor_avg_1 > sensor_threshold_1) begin
+                        alert_level <= 2'b11;
+                    end else if (sensor_avg_0 > sensor_threshold_0 || sensor_avg_1 > sensor_threshold_1) begin
+                        alert_level <= 2'b01;
+                    end else begin
+                        alert_level <= 2'b00;
+                    end
                     
                     // Auto control
                     if (auto_mode) begin
@@ -253,7 +257,8 @@ module tt_um_precision_farming (
                     
                 end else if (frame_state == 2) begin
                     // Decision
-                    output_neuron <= (hidden_neuron1 + hidden_neuron2)[7:0];
+                    // Fix: Cannot bit-slice arithmetic result directly
+                    output_neuron <= hidden_neuron1[7:0] + hidden_neuron2[7:0];
                     
                     if (hidden_neuron1 > (total_pixel_count >> 2)) begin
                         harvest_ready <= 0;
