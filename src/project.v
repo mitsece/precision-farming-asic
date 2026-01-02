@@ -91,6 +91,7 @@ module tt_um_precision_farming (
     reg growth_ready;               // Harvest readiness flag
     reg [2:0] growth_stage;         // 0-7 growth stages
     reg [7:0] maturity_percent;     // Maturity percentage (0-100)
+    reg [11:0] total_green;         // Total green pixels (light + deep)
     
     // ============================================
     // FAULT DETECTION REGISTERS
@@ -329,13 +330,11 @@ module tt_um_precision_farming (
                     
                     // Calculate maturity percentage: deep_green / (light + deep) * 100
                     // Using yellow_pixel_count register for deep_green count
-                    reg [11:0] total_green;
-                    total_green = green_pixel_count + yellow_pixel_count;
+                    total_green <= green_pixel_count + yellow_pixel_count;
                     
-                    if (total_green > 12'd10) begin
+                    if ((green_pixel_count + yellow_pixel_count) > 12'd10) begin
                         // Maturity = (deep_green * 100) / total_green
-                        // Simplified: maturity_percent = (yellow_pixel_count << 6) / total_green
-                        maturity_percent <= (yellow_pixel_count * 8'd100) / total_green[7:0];
+                        maturity_percent <= (yellow_pixel_count * 8'd100) / (green_pixel_count[7:0] + yellow_pixel_count[7:0]);
                     end else begin
                         maturity_percent <= 0;
                     end
