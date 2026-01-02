@@ -1,292 +1,294 @@
 /*
- * Precision Farming ASIC - Optimized for 1x1 Tile
+ * Precision Farming ASIC - Microgreen Growth Monitor
+ * Optimized for 1x2 Tiny Tapeout Tile
  * 
- * Balanced design with moderate complexity:
- * 1. Dual Sensor Monitoring with averaging
- * 2. ML Harvest Detection with color classification
- * 3. Auto irrigation control
+ * Application: Pea Plant Microgreen Cultivation
+ * - 4 Environmental Sensors (Soil, Temp, Humidity, Light)
+ * - Camera-based Growth Detection
+ * - Multi-threshold Alert System
+ * - Harvest Readiness Detection
  */
 
 `default_nettype none
 
 module tt_um_precision_farming (
     input  wire [7:0] ui_in,    // Sensor data / Camera pixels
-    output wire [7:0] uo_out,   // Status and control outputs
+    output wire [7:0] uo_out,   // Status and alerts
     input  wire [7:0] uio_in,   // Control inputs
-    output wire [7:0] uio_out,  // Debug/Status outputs
+    output wire [7:0] uio_out,  // Debug/Extended outputs
     output wire [7:0] uio_oe,   // IO Enable
     input  wire       ena,      
     input  wire       clk,      
     input  wire       rst_n     
 );
 
-    // I/O Configuration
-    assign uio_oe = 8'b11000000; // Bits 6-7 as outputs
+    // ============================================
+    // I/O CONFIGURATION
+    // ============================================
+    assign uio_oe = 8'b11111111; // All bidirectional pins as outputs
     
-    // Control signal decoding
-    wire mode_ml = uio_in[7];           // 0=Sensor mode, 1=ML mode
-    wire vsync = uio_in[6];             // Frame sync
-    wire href = uio_in[5];              // Line valid
-    wire auto_mode = uio_in[4];         // Auto control
-    wire sensor_sel = uio_in[0];        // Which sensor (0 or 1)
+    // ============================================
+    // CONTROL SIGNAL DECODING
+    // ============================================
+    wire mode_camera = uio_in[7];       // 0=Sensor mode, 1=Camera mode
+    wire vsync = uio_in[6];             // Camera frame sync
+    wire href = uio_in[5];              // Camera line valid
+    wire [1:0] sensor_sel = uio_in[1:0]; // Sensor selection (0-3)
+    // uio_in[4:2] reserved for future use
     
-    // Output signals
-    reg [1:0] actuator_control;         // Pump, valve
-    reg [1:0] alert_level;              // Alert severity
+    // ============================================
+    // SENSOR THRESHOLDS (Optimized for Pea Microgreens)
+    // ============================================
+    // Based on typical microgreen growing conditions:
+    // - Soil: 60-80% moisture (153-204 in 0-255 scale)
+    // - Temp: 18-24°C (scaled to 0-255)
+    // - Humidity: 50-70% (128-179 in 0-255 scale)
+    // - Light: 12-16 hours/day, moderate intensity
     
-    assign uio_out = {actuator_control, 4'b0, alert_level};
+    localparam [7:0] SOIL_MIN = 8'd140;      // Below = too dry
+    localparam [7:0] SOIL_MAX = 8'd210;      // Above = too wet
+    localparam [7:0] TEMP_MIN = 8'd100;      // Below = too cold
+    localparam [7:0] TEMP_MAX = 8'd160;      // Above = too hot
+    localparam [7:0] HUMID_MIN = 8'd120;     // Below = too dry
+    localparam [7:0] HUMID_MAX = 8'd190;     // Above = too humid
+    localparam [7:0] LIGHT_MIN = 8'd80;      // Below = too dark
+    localparam [7:0] LIGHT_MAX = 8'd220;     // Above = too bright
     
-    // Main output
+    // ============================================
+    // SENSOR MODE REGISTERS
+    // ============================================
+    reg [7:0] sensor_soil;          // Latest soil moisture reading
+    reg [7:0] sensor_temp;          // Latest temperature reading
+    reg [7:0] sensor_humid;         // Latest humidity reading
+    reg [7:0] sensor_light;         // Latest light reading
+    
+    // Alert flags for each sensor
+    reg alert_soil;
+    reg alert_temp;
+    reg alert_humid;
+    reg alert_light;
+    
+    // 4-sample averaging for stability
+    reg [7:0] soil_history [0:3];
+    reg [7:0] temp_history [0:3];
+    reg [7:0] humid_history [0:3];
+    reg [7:0] light_history [0:3];
+    reg [1:0] history_index;
+    
+    reg [9:0] soil_sum;
+    reg [9:0] temp_sum;
+    reg [9:0] humid_sum;
+    reg [9:0] light_sum;
+    
+    // ============================================
+    // CAMERA MODE REGISTERS (Growth Detection)
+    // ============================================
+    reg [11:0] green_pixel_count;   // Green pixels (immature)
+    reg [11:0] yellow_pixel_count;  // Yellow/mature pixels
+    reg [11:0] total_pixel_count;   // Total pixels processed
+    
+    reg growth_ready;               // Harvest readiness flag
+    reg [2:0] growth_stage;         // 0-7 growth stages
+    
+    // ============================================
+    // OUTPUT REGISTERS
+    // ============================================
+    reg buzzer_active;              // Master alert/buzzer
+    reg [3:0] alert_code;           // Which sensors triggered
     reg [7:0] status_output;
-    assign uo_out = status_output;
-
-    // ============================================
-    // SENSOR MONITORING MODE - 2 Channels
-    // ============================================
-    
-    // 2 sensor channels with 4-sample history
-    reg [7:0] sensor_history_0_0, sensor_history_0_1, sensor_history_0_2, sensor_history_0_3;
-    reg [7:0] sensor_history_1_0, sensor_history_1_1, sensor_history_1_2, sensor_history_1_3;
-    reg [1:0] history_ptr_0, history_ptr_1;
-    reg [9:0] sensor_sum_0, sensor_sum_1;
-    reg [7:0] sensor_avg_0, sensor_avg_1;
-    reg [7:0] sensor_threshold_0, sensor_threshold_1;
-    
-    // State counter
-    reg [2:0] sample_state;
+    reg [7:0] debug_output;
     
     // ============================================
-    // ML MODE - Simplified
+    // MAIN LOGIC
     // ============================================
     
-    // Pixel counters
-    reg [11:0] green_pixel_count;
-    reg [11:0] red_pixel_count;
-    reg [11:0] total_pixel_count;
-    
-    // Neural network (2 neurons)
-    reg [11:0] hidden_neuron1;
-    reg [11:0] hidden_neuron2;
-    
-    // Outputs
-    reg [7:0] output_neuron;
-    reg harvest_ready;
-    reg pest_detected;
-    
-    // Frame state
-    reg [1:0] frame_state;
-    
-    // ============================================
-    // CONTROL
-    // ============================================
-    
-    reg pump_on;
-    reg valve_open;
-    reg [11:0] pump_timer;
-    
-    // Helper wires for array access
-    reg [7:0] current_history_value;
-    
-    always @(*) begin
-        // Read from history based on sensor_sel and history_ptr
-        if (sensor_sel == 0) begin
-            case (history_ptr_0)
-                2'd0: current_history_value = sensor_history_0_0;
-                2'd1: current_history_value = sensor_history_0_1;
-                2'd2: current_history_value = sensor_history_0_2;
-                2'd3: current_history_value = sensor_history_0_3;
-            endcase
-        end else begin
-            case (history_ptr_1)
-                2'd0: current_history_value = sensor_history_1_0;
-                2'd1: current_history_value = sensor_history_1_1;
-                2'd2: current_history_value = sensor_history_1_2;
-                2'd3: current_history_value = sensor_history_1_3;
-            endcase
-        end
-    end
+    integer i;
     
     always @(posedge clk) begin
         if (!rst_n) begin
-            // Reset sensor 0 history
-            sensor_history_0_0 <= 0;
-            sensor_history_0_1 <= 0;
-            sensor_history_0_2 <= 0;
-            sensor_history_0_3 <= 0;
-            history_ptr_0 <= 0;
-            sensor_sum_0 <= 0;
-            sensor_avg_0 <= 0;
-            sensor_threshold_0 <= 128;
+            // Reset all sensor values
+            sensor_soil <= 0;
+            sensor_temp <= 0;
+            sensor_humid <= 0;
+            sensor_light <= 0;
             
-            // Reset sensor 1 history
-            sensor_history_1_0 <= 0;
-            sensor_history_1_1 <= 0;
-            sensor_history_1_2 <= 0;
-            sensor_history_1_3 <= 0;
-            history_ptr_1 <= 0;
-            sensor_sum_1 <= 0;
-            sensor_avg_1 <= 0;
-            sensor_threshold_1 <= 128;
+            // Reset alerts
+            alert_soil <= 0;
+            alert_temp <= 0;
+            alert_humid <= 0;
+            alert_light <= 0;
+            buzzer_active <= 0;
+            alert_code <= 0;
             
-            // Reset ML
+            // Reset history
+            for (i = 0; i < 4; i = i + 1) begin
+                soil_history[i] <= 0;
+                temp_history[i] <= 0;
+                humid_history[i] <= 0;
+                light_history[i] <= 0;
+            end
+            history_index <= 0;
+            
+            soil_sum <= 0;
+            temp_sum <= 0;
+            humid_sum <= 0;
+            light_sum <= 0;
+            
+            // Reset camera
             green_pixel_count <= 0;
-            red_pixel_count <= 0;
+            yellow_pixel_count <= 0;
             total_pixel_count <= 0;
-            hidden_neuron1 <= 0;
-            hidden_neuron2 <= 0;
-            output_neuron <= 0;
-            harvest_ready <= 0;
-            pest_detected <= 0;
+            growth_ready <= 0;
+            growth_stage <= 0;
             
-            // Reset control
-            pump_on <= 0;
-            valve_open <= 0;
-            actuator_control <= 0;
-            alert_level <= 0;
-            sample_state <= 0;
-            frame_state <= 0;
-            pump_timer <= 0;
             status_output <= 0;
+            debug_output <= 0;
             
         end else if (ena) begin
             
-            if (!mode_ml) begin
+            if (!mode_camera) begin
                 // ============================================
-                // SENSOR MODE
+                // SENSOR MONITORING MODE
                 // ============================================
                 
-                // Store reading in history
-                if (sensor_sel == 0) begin
-                    case (history_ptr_0)
-                        2'd0: sensor_history_0_0 <= ui_in;
-                        2'd1: sensor_history_0_1 <= ui_in;
-                        2'd2: sensor_history_0_2 <= ui_in;
-                        2'd3: sensor_history_0_3 <= ui_in;
-                    endcase
-                    history_ptr_0 <= history_ptr_0 + 1;
-                    
-                    // Running sum (4 samples)
-                    sensor_sum_0 <= sensor_sum_0 - {2'b0, current_history_value} + {2'b0, ui_in};
-                    
-                    // Average: divide by 4
-                    sensor_avg_0 <= {2'b0, sensor_sum_0[9:2]};
-                    
-                end else begin
-                    case (history_ptr_1)
-                        2'd0: sensor_history_1_0 <= ui_in;
-                        2'd1: sensor_history_1_1 <= ui_in;
-                        2'd2: sensor_history_1_2 <= ui_in;
-                        2'd3: sensor_history_1_3 <= ui_in;
-                    endcase
-                    history_ptr_1 <= history_ptr_1 + 1;
-                    
-                    // Running sum (4 samples)
-                    sensor_sum_1 <= sensor_sum_1 - {2'b0, current_history_value} + {2'b0, ui_in};
-                    
-                    // Average: divide by 4
-                    sensor_avg_1 <= {2'b0, sensor_sum_1[9:2]};
-                end
-                
-                // Decision logic
-                sample_state <= sample_state + 1;
-                if (sample_state == 7) begin
-                    // Check sensors
-                    if (sensor_avg_0 > sensor_threshold_0 && sensor_avg_1 > sensor_threshold_1) begin
-                        alert_level <= 2'b11;
-                    end else if (sensor_avg_0 > sensor_threshold_0 || sensor_avg_1 > sensor_threshold_1) begin
-                        alert_level <= 2'b01;
-                    end else begin
-                        alert_level <= 2'b00;
-                    end
-                    
-                    // Auto control
-                    if (auto_mode) begin
-                        if (sensor_avg_0 < 80) begin
-                            pump_on <= 1;
-                            valve_open <= 1;
-                            pump_timer <= 12'd1000;
-                        end else if (sensor_avg_0 > 180) begin
-                            pump_on <= 0;
-                            valve_open <= 0;
+                // Store new reading in history buffer
+                case (sensor_sel)
+                    2'b00: begin // Soil moisture
+                        soil_history[history_index] <= ui_in;
+                        soil_sum <= soil_sum - soil_history[history_index] + ui_in;
+                        sensor_soil <= soil_sum[9:2]; // Divide by 4 for average
+                        
+                        // Check thresholds
+                        if (sensor_soil < SOIL_MIN || sensor_soil > SOIL_MAX) begin
+                            alert_soil <= 1;
+                        end else begin
+                            alert_soil <= 0;
                         end
                     end
-                end
-                
-                // Timer countdown
-                if (pump_timer > 0) begin
-                    pump_timer <= pump_timer - 1;
-                    if (pump_timer == 1) begin
-                        pump_on <= 0;
-                        valve_open <= 0;
+                    
+                    2'b01: begin // Temperature
+                        temp_history[history_index] <= ui_in;
+                        temp_sum <= temp_sum - temp_history[history_index] + ui_in;
+                        sensor_temp <= temp_sum[9:2];
+                        
+                        if (sensor_temp < TEMP_MIN || sensor_temp > TEMP_MAX) begin
+                            alert_temp <= 1;
+                        end else begin
+                            alert_temp <= 0;
+                        end
                     end
-                end
+                    
+                    2'b10: begin // Humidity
+                        humid_history[history_index] <= ui_in;
+                        humid_sum <= humid_sum - humid_history[history_index] + ui_in;
+                        sensor_humid <= humid_sum[9:2];
+                        
+                        if (sensor_humid < HUMID_MIN || sensor_humid > HUMID_MAX) begin
+                            alert_humid <= 1;
+                        end else begin
+                            alert_humid <= 0;
+                        end
+                    end
+                    
+                    2'b11: begin // Light
+                        light_history[history_index] <= ui_in;
+                        light_sum <= light_sum - light_history[history_index] + ui_in;
+                        sensor_light <= light_sum[9:2];
+                        
+                        if (sensor_light < LIGHT_MIN || sensor_light > LIGHT_MAX) begin
+                            alert_light <= 1;
+                        end else begin
+                            alert_light <= 0;
+                        end
+                    end
+                endcase
                 
-                // Output
-                status_output <= {alert_level, 4'b0, pump_on, valve_open};
+                // Increment history pointer
+                history_index <= history_index + 1;
+                
+                // Aggregate alerts
+                alert_code <= {alert_light, alert_humid, alert_temp, alert_soil};
+                buzzer_active <= alert_soil | alert_temp | alert_humid | alert_light;
+                
+                // Output current sensor reading
+                case (sensor_sel)
+                    2'b00: status_output <= sensor_soil;
+                    2'b01: status_output <= sensor_temp;
+                    2'b10: status_output <= sensor_humid;
+                    2'b11: status_output <= sensor_light;
+                endcase
+                
+                debug_output <= {alert_code, sensor_sel, 2'b00};
                 
             end else begin
                 // ============================================
-                // ML MODE
+                // CAMERA MODE (Growth Detection)
                 // ============================================
                 
                 if (vsync) begin
-                    // Reset for new frame
+                    // Start of new frame - reset counters
                     green_pixel_count <= 0;
-                    red_pixel_count <= 0;
+                    yellow_pixel_count <= 0;
                     total_pixel_count <= 0;
-                    frame_state <= 0;
                     
                 end else if (href) begin
-                    // Process pixel
+                    // Valid pixel data
                     total_pixel_count <= total_pixel_count + 1;
                     
-                    // Color detection (RRR GGG BB)
-                    if ((ui_in[4:2] > 3'b100) && (ui_in[7:5] < 3'b011)) begin
+                    // Color classification (RGB332 or similar format)
+                    // Green: High G, Low R,B (immature microgreen)
+                    // Yellow/Brown: High R,G, Low B (mature/ready)
+                    
+                    // Green detection: G[4:2] > 5, R[7:5] < 3
+                    if ((ui_in[4:2] > 3'd5) && (ui_in[7:5] < 3'd3)) begin
                         green_pixel_count <= green_pixel_count + 1;
-                    end else if (ui_in[7:5] > 3'b100) begin
-                        red_pixel_count <= red_pixel_count + 1;
                     end
                     
-                    frame_state <= 1;
-                    
-                end else if (frame_state == 1 && !href) begin
-                    // Frame end - compute
-                    hidden_neuron1 <= green_pixel_count;
-                    hidden_neuron2 <= red_pixel_count;
-                    frame_state <= 2;
-                    
-                end else if (frame_state == 2) begin
-                    // Decision
-                    // Fix: Cannot bit-slice arithmetic result directly
-                    output_neuron <= hidden_neuron1[7:0] + hidden_neuron2[7:0];
-                    
-                    if (hidden_neuron1 > (total_pixel_count >> 2)) begin
-                        harvest_ready <= 0;
-                    end else if (hidden_neuron2 > (total_pixel_count >> 3)) begin
-                        harvest_ready <= 1;
+                    // Yellow/mature detection: R[7:5] > 4, G[4:2] > 3
+                    else if ((ui_in[7:5] > 3'd4) && (ui_in[4:2] > 3'd3)) begin
+                        yellow_pixel_count <= yellow_pixel_count + 1;
                     end
                     
-                    if (red_pixel_count > (green_pixel_count << 1)) begin
-                        pest_detected <= 1;
+                end else if (total_pixel_count > 12'd100) begin
+                    // Frame complete - analyze results
+                    
+                    // Calculate growth stage (0-7)
+                    // Based on ratio of mature to total pixels
+                    if (yellow_pixel_count > (total_pixel_count >> 1)) begin
+                        growth_stage <= 3'd7; // Fully mature
+                        growth_ready <= 1;
+                    end else if (yellow_pixel_count > (total_pixel_count >> 2)) begin
+                        growth_stage <= 3'd5; // Nearly ready
+                        growth_ready <= 1;
+                    end else if (yellow_pixel_count > (total_pixel_count >> 3)) begin
+                        growth_stage <= 3'd3; // Mid-growth
+                        growth_ready <= 0;
                     end else begin
-                        pest_detected <= 0;
+                        growth_stage <= 3'd1; // Early growth
+                        growth_ready <= 0;
                     end
                     
-                    frame_state <= 3;
+                    // Buzzer for harvest ready
+                    buzzer_active <= growth_ready;
                 end
                 
-                // Output
-                status_output <= {harvest_ready, pest_detected, output_neuron[5:0]};
+                // Output growth status
+                status_output <= {growth_ready, growth_stage, alert_code};
+                debug_output <= yellow_pixel_count[7:0];
             end
-            
-            // Actuator update
-            actuator_control <= {valve_open, pump_on};
         end
     end
-
-    // Suppress unused warnings
+    
+    // ============================================
+    // OUTPUT ASSIGNMENTS
+    // ============================================
+    assign uo_out = {buzzer_active, status_output[6:0]};
+    assign uio_out = debug_output;
+    
+    // Suppress unused signal warnings
     /* verilator lint_off UNUSEDSIGNAL */
-    wire _unused = &{1'b0, uio_in[3:1], 1'b0};
+    wire _unused = &{1'b0, uio_in[4:2], green_pixel_count[11:8], 
+                     yellow_pixel_count[11:8], total_pixel_count[11:8], 1'b0};
     /* verilator lint_on UNUSEDSIGNAL */
 
 endmodule
