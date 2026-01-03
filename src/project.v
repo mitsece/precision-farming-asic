@@ -178,55 +178,39 @@ module tt_um_precision_farming (
                     2'b00: begin // Soil moisture
                         soil_history[history_index] <= ui_in;
                         soil_sum <= soil_sum - {2'b0, soil_history[history_index]} + {2'b0, ui_in};
-                        sensor_soil <= soil_sum[9:2]; // Divide by 4 for average
-                        
-                        // Check thresholds
-                        if (sensor_soil < SOIL_MIN || sensor_soil > SOIL_MAX) begin
-                            alert_soil <= 1;
-                        end else begin
-                            alert_soil <= 0;
-                        end
+                        sensor_soil <= soil_sum[9:2]; // Divide by 4 for average (pipelined)
                     end
                     
                     2'b01: begin // Temperature
                         temp_history[history_index] <= ui_in;
                         temp_sum <= temp_sum - {2'b0, temp_history[history_index]} + {2'b0, ui_in};
-                        sensor_temp <= temp_sum[9:2];
-                        
-                        if (sensor_temp < TEMP_MIN || sensor_temp > TEMP_MAX) begin
-                            alert_temp <= 1;
-                        end else begin
-                            alert_temp <= 0;
-                        end
+                        sensor_temp <= temp_sum[9:2]; // Pipelined
                     end
                     
                     2'b10: begin // Humidity
                         humid_history[history_index] <= ui_in;
                         humid_sum <= humid_sum - {2'b0, humid_history[history_index]} + {2'b0, ui_in};
-                        sensor_humid <= humid_sum[9:2];
-                        
-                        if (sensor_humid < HUMID_MIN || sensor_humid > HUMID_MAX) begin
-                            alert_humid <= 1;
-                        end else begin
-                            alert_humid <= 0;
-                        end
+                        sensor_humid <= humid_sum[9:2]; // Pipelined
                     end
                     
                     2'b11: begin // Light
                         light_history[history_index] <= ui_in;
                         light_sum <= light_sum - {2'b0, light_history[history_index]} + {2'b0, ui_in};
-                        sensor_light <= light_sum[9:2];
-                        
-                        if (sensor_light < LIGHT_MIN || sensor_light > LIGHT_MAX) begin
-                            alert_light <= 1;
-                        end else begin
-                            alert_light <= 0;
-                        end
+                        sensor_light <= light_sum[9:2]; // Pipelined
                     end
                 endcase
                 
                 // Increment history pointer
                 history_index <= history_index + 1;
+                
+                // ============================================
+                // THRESHOLD CHECKING (Pipelined after averaging)
+                // ============================================
+                // Check thresholds on registered sensor values
+                alert_soil <= (sensor_soil < SOIL_MIN || sensor_soil > SOIL_MAX);
+                alert_temp <= (sensor_temp < TEMP_MIN || sensor_temp > TEMP_MAX);
+                alert_humid <= (sensor_humid < HUMID_MIN || sensor_humid > HUMID_MAX);
+                alert_light <= (sensor_light < LIGHT_MIN || sensor_light > LIGHT_MAX);
                 
                 // ============================================
                 // FAULT DETECTION
@@ -333,8 +317,27 @@ module tt_um_precision_farming (
                     total_green <= green_pixel_count + yellow_pixel_count;
                     
                     if ((green_pixel_count + yellow_pixel_count) > 12'd10) begin
-                        // Maturity = (deep_green * 100) / total_green
-                        maturity_percent <= (yellow_pixel_count * 8'd100) / (green_pixel_count[7:0] + yellow_pixel_count[7:0]);
+                        // Simplified maturity calculation - avoid division for timing
+                        // Approximate: maturity ≈ (deep_green << 6) / total_green
+                        // This gives 0-64 range, then scale to 0-100
+                        total_green <= green_pixel_count + yellow_pixel_count;
+                        
+                        // Simple ratio: if deep > light, mature; else immature
+                        if (yellow_pixel_count > green_pixel_count) begin
+                            // More deep green than light = mature (60-100%)
+                            if (yellow_pixel_count > (green_pixel_count << 1)) begin
+                                maturity_percent <= 8'd90;  // Deep >> Light = very mature
+                            end else begin
+                                maturity_percent <= 8'd70;  // Deep > Light = mature
+                            end
+                        end else begin
+                            // More light green than deep = immature (0-40%)
+                            if (green_pixel_count > (yellow_pixel_count << 1)) begin
+                                maturity_percent <= 8'd20;  // Light >> Deep = very immature
+                            end else begin
+                                maturity_percent <= 8'd40;  // Light > Deep = somewhat immature
+                            end
+                        end
                     end else begin
                         maturity_percent <= 0;
                     end
