@@ -12,6 +12,9 @@
 `timescale 1ns / 1ps
 `default_nettype none
 
+// Suppress TIMESCALEMOD warnings from Sky130 standard cell library
+/* verilator lint_off TIMESCALEMOD */
+
 module tt_um_precision_farming (
     input  wire [7:0] ui_in,    // Sensor data / Camera pixels
     output wire [7:0] uo_out,   // Status and alerts
