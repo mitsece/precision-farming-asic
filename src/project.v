@@ -12,7 +12,6 @@
  * - Harvest Readiness Detection
  */
 
-`timescale 1ns / 1ps
 `default_nettype none
 
 // Suppress TIMESCALEMOD warnings from Sky130 standard cell library
