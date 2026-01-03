@@ -6,7 +6,7 @@ project:
   description:  "Dual-mode ASIC for agricultural automation: sensor monitoring with adaptive thresholds and ML-based harvest detection"
   language:     "Verilog"
   clock_hz:     10000000  # 10 MHz clock
-  tiles: "2x2"
+  tiles: "1x2"
   top_module:  "tt_um_precision_farming"
   source_files:
     - "project.v"
